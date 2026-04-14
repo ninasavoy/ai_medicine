@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import importlib
 import wave
 from pathlib import Path
 
 
+# ------------------------------
+# Editable configuration
+# ------------------------------
+PROCESS_ALL_FILES = True
 INPUT_WAV_PATH = "data/101_1b1_Al_sc_Meditron.wav"
+INPUT_DIR = "data"
+RECURSIVE_SEARCH = True
+MAX_WORKERS = None  
 OUTPUT_DIR = "processed_audio"
 
 
@@ -75,18 +83,78 @@ def wav_to_spectrogram(input_wav: Path, output_png: Path) -> None:
 	plt.close()
 
 
+def _build_output_path(input_wav: Path, input_base_dir: Path, output_dir: Path) -> Path:
+	"""Build output path while preserving the relative folder structure."""
+	try:
+		rel = input_wav.relative_to(input_base_dir)
+		return output_dir / rel.parent / f"{input_wav.stem}_spectrogram.png"
+	except ValueError:
+		return output_dir / f"{input_wav.stem}_spectrogram.png"
+
+
+def _process_one(input_wav: Path, input_base_dir: Path, output_dir: Path):
+	"""Worker function for single-file spectrogram generation."""
+	output_file = _build_output_path(input_wav, input_base_dir, output_dir)
+	wav_to_spectrogram(input_wav, output_file)
+	return input_wav, output_file
+
+
+def process_many_wavs(
+	input_dir: Path,
+	output_dir: Path,
+	recursive: bool = True,
+	max_workers: int | None = None,
+) -> None:
+	"""Process all WAV files in a directory, optionally in parallel."""
+	if not input_dir.exists() or not input_dir.is_dir():
+		raise FileNotFoundError("Please set INPUT_DIR to a valid existing folder.")
+
+	pattern = "**/*.wav" if recursive else "*.wav"
+	wav_files = sorted(input_dir.glob(pattern))
+
+	if not wav_files:
+		raise FileNotFoundError(f"No .wav files found in: {input_dir.resolve()}")
+
+	print(f"Found {len(wav_files)} WAV files.")
+
+	if max_workers == 1 or len(wav_files) == 1:
+		for wav_file in wav_files:
+			_, output_file = _process_one(wav_file, input_dir, output_dir)
+			print(f"Saved: {output_file.resolve()}")
+		return
+
+	workers_to_use = max_workers
+	with ProcessPoolExecutor(max_workers=workers_to_use) as executor:
+		futures = [
+			executor.submit(_process_one, wav_file, input_dir, output_dir)
+			for wav_file in wav_files
+		]
+
+		for future in as_completed(futures):
+			input_file, output_file = future.result()
+			print(f"Saved: {output_file.resolve()} (from {input_file.name})")
+
+
 def main() -> None:
-	input_wav = Path(INPUT_WAV_PATH)
 	output_dir = Path(OUTPUT_DIR)
 
+	if PROCESS_ALL_FILES:
+		process_many_wavs(
+			input_dir=Path(INPUT_DIR),
+			output_dir=output_dir,
+			recursive=RECURSIVE_SEARCH,
+			max_workers=MAX_WORKERS,
+		)
+		return
+
+	input_wav = Path(INPUT_WAV_PATH)
 	if not input_wav.exists() or input_wav.suffix.lower() != ".wav":
 		raise FileNotFoundError(
 			"Please set INPUT_WAV_PATH to a valid existing .wav file."
 		)
 
-	output_file = output_dir / f"{input_wav.stem}_spectrogram.png"
+	output_file = _build_output_path(input_wav, input_wav.parent, output_dir)
 	wav_to_spectrogram(input_wav, output_file)
-
 	print(f"Saved spectrogram to: {output_file.resolve()}")
 
 
