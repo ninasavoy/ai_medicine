@@ -1,144 +1,81 @@
-# ai_medicine
+# AI Medicine - Respiratory Sound Diagnosis Classifier
 
-
-## Evolução semanal
-### Sprint 1 — Definição e Exploração Inicial
-
-- Definição do escopo: classificação de doenças respiratórias a partir de sons pulmonares
-- Escolha da abordagem de converter áudio em espectrogramas para alimentar uma CNN — decisão que permite tratar o problema de áudio como classificação de imagem
-- Geração dos primeiros espectrogramas a partir dos arquivos de áudio brutos
-- Implementação do pipeline inicial de pré-processamento de áudio
-
-### Sprint 2 — Construção do Dataset
-
-- Análise exploratória dos dados (EDA): distribuição de classes, duração dos áudios, qualidade dos registros
-- Definição do formato final do dataset (espectrogramas rotulados por condição respiratória)
-- Implementação de uma CNN básica como baseline — sem otimizações, apenas para validar o pipeline de ponta a ponta
-
-### Sprint 3 — Primeiros Resultados e Agregação
-
-- Decisão de agregar predições por paciente (em vez de por fragmento de áudio), tornando o resultado clinicamente mais interpretável
-- Ajustes na arquitetura da CNN: convolução 2D sobre o espectrograma completo para capturar padrões globais tempo-frequência
-- Avaliação das primeiras métricas (acurácia, F1-score, matriz de confusão)
-- Padronização da sequência: pré-processamento → CNN por ciclo → agregação por paciente → avaliação
-
-### Sprint 4 — Refinamento do Modelo
-
-- Melhorias no modelo: adição de dropout, batch normalization
-- Tratamento do desbalanceamento de classes: class weights, focal loss
-- Refinamento: otimização de hiperparâmetros, validação cruzada
-
-### Sprint 5 — Avaliação Final
-
-- Avaliação final com métricas consolidadas por paciente
-- Análise crítica dos resultados e visualizações (curvas ROC, mapas de ativação, etc.)
-- Documentação completa e conclusões do projeto
+Classificação de diagnósticos respiratórios (COPD, Pneumonia, URTI, etc.) a partir de sons pulmonares usando CNN.
 
 ## Pipeline
 
-1. Segmentação dos Áudios
+```
+Audio (.wav) → Mel Spectrogram → CNN 2D → Diagnóstico
+```
 
-Os áudios são divididos em ciclos respiratórios individuais utilizando as anotações fornecidas no dataset:
+**Fluxo:**
+1. Segmentação de áudios em ciclos respiratórios
+2. Conversão para Mel Spectrograms (128x128)
+3. Treinamento de CNN com 4 blocos convolucionais
+4. Agregação por paciente (média de probabilidades)
+5. Predição de diagnóstico final
 
-- Início do ciclo
-- Fim do ciclo
+## Quick Start
 
-Cada ciclo passa a ser uma amostra independente.
+### Treinar Modelo
+```bash
+jupyter notebook notebooks/diagnosis_classifier.ipynb
+```
 
-2. Conversão para Espectrogramas
+### Fazer Predição
+```bash
+# Com spectrogram
+python predict_diagnosis.py processed_audio/spectrograms/sample.npy --visualize
 
-Cada ciclo de áudio é transformado em um Mel Spectrogram, que representa o sinal no domínio tempo-frequência.
+# Com áudio direto
+python predict_diagnosis.py audio.wav --audio --visualize
+```
 
-Etapas:
+## Estrutura
 
-- Carregamento do áudio
-- Recorte do ciclo
-- Geração do espectrograma
-- Conversão para escala logarítmica (dB)
+```
+ai_medicine/
+├── notebooks/
+│   ├── eda.ipynb                  # Análise exploratória
+│   └── diagnosis_classifier.ipynb # Treinamento do modelo
+├── processed_audio/
+│   ├── spectrograms/              # Espectrogramas (.npy)
+│   ├── audio/                     # Áudios processados
+│   └── metadata.csv               # Metadados
+├── models/
+│   ├── diagnosis_classifier.h5    # Modelo treinado
+│   └── label_encoder.pkl          # Encoder de classes
+├── process_audio.py               # Processamento de áudio
+├── enrich_metadata.py             # Enriquecer metadados
+└── predict_diagnosis.py           # Fazer predições
+```
 
-Esses espectrogramas são utilizados como entrada da CNN.
+## Modelo
 
-3. Extração de Features com CNN
+**Arquitetura CNN:**
+- 4 blocos de convolução (32 → 64 → 128 → 256 filtros)
+- Batch Normalization + Dropout em cada bloco
+- MaxPooling2D entre blocos
+- Dense layers (512 → 256 → num_classes)
 
-Uma rede neural convolucional é utilizada para extrair padrões relevantes dos espectrogramas.
+**Treinamento:**
+- Optimizer: Adam (lr=0.001)
+- Loss: Sparse Categorical Crossentropy
+- Callbacks: EarlyStopping, ReduceLROnPlateau
+- Split: 60% train, 20% val, 20% test
 
-Decisão arquitetural: Convolução 2D sobre o espectrograma completo (128x128), capturando padrões globais no domínio tempo-frequência, em vez de subdividir ou usar 1D.
+## Métricas
 
-A CNN aprende automaticamente características como:
+- Classification Report (Precision, Recall, F1-score)
+- Confusion Matrix
+- ROC Curves (One vs Rest)
+- Test Accuracy
 
-- padrões de frequência
-- intensidade do som
-- variações temporais
+## Considerações
 
-Saída da CNN:
-
-Vetor de features (representação do ciclo)
-
-4. Agregação por Paciente
-
-Como cada paciente possui vários ciclos, é necessário combinar essas informações.
-
-Método utilizado:
-
-- Média das features dos ciclos
-
-Alternativas possíveis:
-
-- Média das probabilidades
-- Votação
-- Modelos sequenciais (não utilizado nesta versão)
-
-5. Classificação Final
-
-Após a agregação, cada paciente é representado por um único vetor.
-Esse vetor é utilizado para prever o diagnóstico:
-
-Classes possíveis incluem:
-
-- COPD
-- Pneumonia
-- URTI
-- Healthy
-- entre outras
-
-O classificador final pode ser:
-
-- MLP (rede densa)
-- ou camada final da própria CNN
-
-## Considerações Importantes
-### Data Leakage
-
-A divisão entre treino e teste é feita por paciente, não por ciclo, para evitar vazamento de informação.
-
-### Desbalanceamento
-
-O dataset possui classes desbalanceadas (ex: muitos casos de COPD).
-
-Soluções utilizadas:
-
-- Class weights
-- Avaliação com métricas além de accuracy
-
-### Limitações
-
-- Nem todo ciclo contém informação suficiente sobre a doença
-- Quantidade de dados limitada
-- Presença de ruído nos áudios
-
-## Resumo da Arquitetura
-Sequência padronizada: Pré-processamento (segmentação + espectrogramas) → CNN 2D por ciclo → Agregação por paciente (média de probabilidades) → Classificação final (diagnóstico por paciente)
-
-Fluxo detalhado: Áudio → Segmentação → Espectrograma → CNN → Features → Agregação → Diagnóstico
-
----
-
-## Complemento — Pipeline implementado até o momento
-
-Além da visão geral acima, o pipeline atualmente implementado nos scripts inclui:
-
-1. **Pareamento automático de arquivos** (`.wav` + `.txt`) com validações de integridade.
-2. **Leitura robusta das anotações de ciclo** (`start`, `end`, `crackles`, `wheezes`) e descarte seguro de linhas inválidas.
+- **Data Leakage:** Split por paciente (não por ciclo)
+- **Desbalanceamento:** Classes desbalanceadas no dataset
+- **Limitações:** Quantidade limitada de dados, presença de ruído
 3. **Padronização do áudio**: mono, `22050 Hz`, normalização de amplitude e duração fixa de `5s` por ciclo.
 4. **Geração padronizada de Mel-spectrograma** com shape final fixo `128x128` e normalização para `[0,1]`.
 5. **Persistência por paciente** em `.npy` + geração de `metadata.csv` no nível de ciclo.
