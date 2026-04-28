@@ -16,6 +16,8 @@ TRAIN_RATIO = 0.70
 VALIDATION_RATIO = 0.15
 TEST_RATIO = 0.15
 RANDOM_SEED = 42
+RARE_DIAGNOSIS_PERCENT = 0.02
+OTHER_DIAGNOSIS_LABEL = "Other"
 
 
 class MetadataEnrichmentError(RuntimeError):
@@ -118,8 +120,21 @@ def _validate_set_match(
         )
 
 
-def _assign_patient_level_splits(
-    patient_ids: Iterable[str],
+def _allocate_counts(total: int, ratios: tuple[float, float, float]) -> tuple[int, int, int]:
+    train_ratio, validation_ratio, test_ratio = ratios
+    raw = [total * train_ratio, total * validation_ratio, total * test_ratio]
+    base = [int(x) for x in raw]
+    remainder = total - sum(base)
+    if remainder > 0:
+        frac = [x - int(x) for x in raw]
+        order = sorted(range(3), key=lambda i: frac[i], reverse=True)
+        for i in order[:remainder]:
+            base[i] += 1
+    return base[0], base[1], base[2]
+
+
+def _assign_patient_level_splits_stratified(
+    patient_to_label: dict[str, str],
     *,
     seed: int,
     train_ratio: float,
@@ -133,35 +148,48 @@ def _assign_patient_level_splits(
             f"Received train={train_ratio}, validation={validation_ratio}, test={test_ratio}."
         )
 
-    shuffled = sorted(set(patient_ids))
-    if not shuffled:
+    if not patient_to_label:
         raise MetadataEnrichmentError("No patient IDs found in metadata.")
 
+    label_to_patients: dict[str, list[str]] = {}
+    for pid, label in patient_to_label.items():
+        label_to_patients.setdefault(label, []).append(pid)
+
     rng = random.Random(seed)
-    rng.shuffle(shuffled)
-
-    total = len(shuffled)
-    train_count = int(total * train_ratio)
-    validation_count = int(total * validation_ratio)
-    test_count = total - train_count - validation_count
-
-    if train_count <= 0 or validation_count <= 0 or test_count <= 0:
-        raise MetadataEnrichmentError(
-            "Split counts must all be > 0. "
-            f"Got train={train_count}, validation={validation_count}, test={test_count}, total={total}."
-        )
-
-    train_ids = set(shuffled[:train_count])
-    validation_ids = set(shuffled[train_count : train_count + validation_count])
-    test_ids = set(shuffled[train_count + validation_count :])
-
     result: dict[str, str] = {}
-    for pid in train_ids:
-        result[pid] = "train"
-    for pid in validation_ids:
-        result[pid] = "validation"
-    for pid in test_ids:
-        result[pid] = "test"
+
+    for label, patients in label_to_patients.items():
+        rng.shuffle(patients)
+        n = len(patients)
+        if n == 1:
+            train_count, validation_count, test_count = 1, 0, 0
+        elif n == 2:
+            train_count, validation_count, test_count = 1, 0, 1
+        else:
+            train_count, validation_count, test_count = _allocate_counts(
+                n, (train_ratio, validation_ratio, test_ratio)
+            )
+
+        train_ids = patients[:train_count]
+        validation_ids = patients[train_count : train_count + validation_count]
+        test_ids = patients[train_count + validation_count : train_count + validation_count + test_count]
+
+        for pid in train_ids:
+            result[pid] = "train"
+        for pid in validation_ids:
+            result[pid] = "validation"
+        for pid in test_ids:
+            result[pid] = "test"
+
+    split_counts = {"train": 0, "validation": 0, "test": 0}
+    for split in result.values():
+        split_counts[split] = split_counts.get(split, 0) + 1
+
+    if any(split_counts[s] == 0 for s in split_counts):
+        raise MetadataEnrichmentError(
+            "Stratified split produced an empty split. "
+            f"Counts: {split_counts}."
+        )
 
     return result
 
@@ -194,6 +222,19 @@ def enrich_metadata() -> None:
     diagnosis_file = _resolve_diagnosis_file()
     diagnosis_map = _load_simple_mapping(diagnosis_file, name="diagnosis")
 
+    total_patients = len(diagnosis_map)
+    diagnosis_counts: dict[str, int] = {}
+    for diag in diagnosis_map.values():
+        diagnosis_counts[diag] = diagnosis_counts.get(diag, 0) + 1
+
+    rare_threshold = RARE_DIAGNOSIS_PERCENT * total_patients
+    rare_diagnoses = {diag for diag, count in diagnosis_counts.items() if count < rare_threshold}
+    if rare_diagnoses:
+        diagnosis_map = {
+            pid: (OTHER_DIAGNOSIS_LABEL if diag in rare_diagnoses else diag)
+            for pid, diag in diagnosis_map.items()
+        }
+
     metadata_patients = {row["patient_id"] for row in rows}
     _validate_set_match(
         metadata_patients,
@@ -201,8 +242,8 @@ def enrich_metadata() -> None:
         context="metadata vs diagnosis",
     )
 
-    split_map = _assign_patient_level_splits(
-        metadata_patients,
+    split_map = _assign_patient_level_splits_stratified(
+        diagnosis_map,
         seed=RANDOM_SEED,
         train_ratio=TRAIN_RATIO,
         validation_ratio=VALIDATION_RATIO,
