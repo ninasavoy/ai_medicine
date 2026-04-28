@@ -15,17 +15,18 @@
 - Definição do formato final do dataset (espectrogramas rotulados por condição respiratória)
 - Implementação de uma CNN básica como baseline — sem otimizações, apenas para validar o pipeline de ponta a ponta
 
-Sprint 3 — Primeiros Resultados e Agregação
+### Sprint 3 — Primeiros Resultados e Agregação
 
 - Decisão de agregar predições por paciente (em vez de por fragmento de áudio), tornando o resultado clinicamente mais interpretável
-- Ajustes na arquitetura da CNN com base nos resultados iniciais
+- Ajustes na arquitetura da CNN: convolução 2D sobre o espectrograma completo para capturar padrões globais tempo-frequência
 - Avaliação das primeiras métricas (acurácia, F1-score, matriz de confusão)
+- Padronização da sequência: pré-processamento → CNN por ciclo → agregação por paciente → avaliação
 
 ### Sprint 4 — Refinamento do Modelo
 
-- Ajuste de hiperparâmetros (learning rate, batch size, número de camadas)
-- Tratamento do desbalanceamento de classes: decisão entre técnicas como oversampling, undersampling ou pesos por classe na loss function
-- Melhorias na arquitetura (ex: adição de Dropout, BatchNorm, ou transfer learning)
+- Melhorias no modelo: adição de dropout, batch normalization
+- Tratamento do desbalanceamento de classes: class weights, focal loss
+- Refinamento: otimização de hiperparâmetros, validação cruzada
 
 ### Sprint 5 — Avaliação Final
 
@@ -60,6 +61,8 @@ Esses espectrogramas são utilizados como entrada da CNN.
 3. Extração de Features com CNN
 
 Uma rede neural convolucional é utilizada para extrair padrões relevantes dos espectrogramas.
+
+Decisão arquitetural: Convolução 2D sobre o espectrograma completo (128x128), capturando padrões globais no domínio tempo-frequência, em vez de subdividir ou usar 1D.
 
 A CNN aprende automaticamente características como:
 
@@ -124,7 +127,9 @@ Soluções utilizadas:
 - Presença de ruído nos áudios
 
 ## Resumo da Arquitetura
-Áudio → Segmentação → Espectrograma → CNN → Features → Agregação → Diagnóstico
+Sequência padronizada: Pré-processamento (segmentação + espectrogramas) → CNN 2D por ciclo → Agregação por paciente (média de probabilidades) → Classificação final (diagnóstico por paciente)
+
+Fluxo detalhado: Áudio → Segmentação → Espectrograma → CNN → Features → Agregação → Diagnóstico
 
 ---
 
@@ -193,8 +198,11 @@ As etapas executadas no notebook de EDA e seus objetivos são:
 
 1. Treinar baseline por ciclo com métricas robustas (F1 macro, matriz de confusão por classe).
 2. Consolidar avaliação principal por paciente (agregação de probabilidades/features por paciente).
-3. Mitigar desbalanceamento com `class weights`, possíveis estratégias de reamostragem e/ou `focal loss`.
+3. Mitigar desbalanceamento com `class weights`, `focal loss` e possíveis estratégias de reamostragem.
 4. Definir política de tratamento de outliers e repetir EDA após limpeza para medir impacto.
-5. Evoluir arquitetura (regularização, ajustes de hiperparâmetros e data augmentation em espectrograma/áudio).
+5. Evoluir arquitetura (regularização com dropout, ajustes de hiperparâmetros e data augmentation em espectrograma/áudio).
 6. Consolidar reprodutibilidade (seeds, versionamento de artefatos e rastreio de experimentos).
 7. Expandir interpretabilidade e análise de erro para guiar melhorias por classe diagnóstica.
+
+
+
