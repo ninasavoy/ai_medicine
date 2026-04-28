@@ -2,6 +2,39 @@
 
 Classificação de diagnósticos respiratórios (COPD, Pneumonia, URTI, etc.) a partir de sons pulmonares usando CNN.
 
+
+### Sprint 1 — Definição e Exploração Inicial
+
+- Definição do escopo: classificação de doenças respiratórias a partir de sons pulmonares
+- Escolha da abordagem de converter áudio em espectrogramas para alimentar uma CNN — decisão que permite tratar o problema de áudio como classificação de imagem
+- Geração dos primeiros espectrogramas a partir dos arquivos de áudio brutos
+- Implementação do pipeline inicial de pré-processamento de áudio
+
+### Sprint 2 — Construção do Dataset
+
+- Análise exploratória dos dados (EDA): distribuição de classes, duração dos áudios, qualidade dos registros
+- Definição do formato final do dataset (espectrogramas rotulados por condição respiratória)
+- Implementação de uma CNN básica como baseline — sem otimizações, apenas para validar o pipeline de ponta a ponta (Fizemos outro modelo de baseline)
+
+### Sprint 3 — Primeiros Resultados e Agregação
+
+- CNN Baseline
+- Decisão de agregar predições por paciente (em vez de por fragmento de áudio), tornando o resultado clinicamente mais interpretável
+- Ajustes na arquitetura da CNN com base nos resultados iniciais
+- Avaliação das primeiras métricas (acurácia, F1-score, matriz de confusão)
+
+### Sprint 4 — Refinamento do Modelo <-- Estamos aqui
+
+- Ajuste de hiperparâmetros (learning rate, batch size, número de camadas)
+- Tratamento do desbalanceamento de classes: decisão entre técnicas como oversampling, undersampling ou pesos por classe na loss function
+- Melhorias na arquitetura (ex: adição de Dropout, BatchNorm, ou transfer learning)
+
+### Sprint 5 — Avaliação Final
+
+- Avaliação final com métricas consolidadas por paciente
+- Análise crítica dos resultados e visualizações (curvas ROC, mapas de ativação, etc.)
+- Documentação completa e conclusões do projeto
+
 ## Pipeline
 
 ```
@@ -15,21 +48,6 @@ Audio (.wav) → Mel Spectrogram → CNN 2D → Diagnóstico
 4. Agregação por paciente (média de probabilidades)
 5. Predição de diagnóstico final
 
-## Quick Start
-
-### Treinar Modelo
-```bash
-jupyter notebook notebooks/diagnosis_classifier.ipynb
-```
-
-### Fazer Predição
-```bash
-# Com spectrogram
-python predict_diagnosis.py processed_audio/spectrograms/sample.npy --visualize
-
-# Com áudio direto
-python predict_diagnosis.py audio.wav --audio --visualize
-```
 
 ## Estrutura
 
@@ -37,32 +55,23 @@ python predict_diagnosis.py audio.wav --audio --visualize
 ai_medicine/
 ├── notebooks/
 │   ├── eda.ipynb                  # Análise exploratória
-│   └── diagnosis_classifier.ipynb # Treinamento do modelo
+│   └── diagnosis_classifier.ipynb # testando um modelo
 ├── processed_audio/
 │   ├── spectrograms/              # Espectrogramas (.npy)
 │   ├── audio/                     # Áudios processados
 │   └── metadata.csv               # Metadados
-├── models/
-│   ├── diagnosis_classifier.h5    # Modelo treinado
-│   └── label_encoder.pkl          # Encoder de classes
-├── process_audio.py               # Processamento de áudio
-├── enrich_metadata.py             # Enriquecer metadados
-└── predict_diagnosis.py           # Fazer predições
+├── process_audio.py               # Processamento de áudio (Criando espectrogramas)
+├── enrich_metadata.py             # Enriquecer metadados (split, diagnostico etc)
+└── predict_diagnosis.py           # testando
 ```
 
 ## Modelo
 
 **Arquitetura CNN:**
-- 4 blocos de convolução (32 → 64 → 128 → 256 filtros)
-- Batch Normalization + Dropout em cada bloco
-- MaxPooling2D entre blocos
-- Dense layers (512 → 256 → num_classes)
+- Em construcao
 
 **Treinamento:**
-- Optimizer: Adam (lr=0.001)
-- Loss: Sparse Categorical Crossentropy
-- Callbacks: EarlyStopping, ReduceLROnPlateau
-- Split: 60% train, 20% val, 20% test
+- A decidir
 
 ## Métricas
 
@@ -82,12 +91,11 @@ ai_medicine/
 6. **Enriquecimento do metadata** com:
 	- diagnóstico por paciente (`diagnosis.txt`),
 	- coluna `duration`,
-	- split `train/validation/test` por paciente,
+	- split `train/validation/test` por paciente e usando stratify,
 	- validações finais de consistência (diagnóstico único/split único por paciente e paths válidos).
 
-**Resumo prático:** hoje a base já está pronta e consistente para treino supervisionado com prevenção explícita de leakage por paciente.
 
-## Complemento — EDA (etapas, motivos e resultados)
+## EDA (etapas, motivos e resultados)
 
 As etapas executadas no notebook de EDA e seus objetivos são:
 
@@ -131,15 +139,20 @@ As etapas executadas no notebook de EDA e seus objetivos são:
 	- **Motivo:** transformar EDA em decisões de modelagem.
 	- **Resultado:** direcionamento para balanceamento, robustez e avaliação por paciente.
 
-## Complemento — Próximos passos com base nos resultados
+11. **Modelo baseline (EDA)**
+	- Extraimos features simples dos espectrogramas (estatisticas e/ou downsample) e treinamos modelos classicos.
+	- Avaliacao em nivel de ciclo e agregacao por paciente (media das probabilidades) para obter o diagnostico final.
+	- Comparacao entre Logistic Regression e Random Forest usando F1 macro por paciente para selecionar o melhor modelo.
+	- Visualizacoes: distribuicao de classes, matrizes de confusao e confianca por paciente.
 
-1. Treinar baseline por ciclo com métricas robustas (F1 macro, matriz de confusão por classe).
-2. Consolidar avaliação principal por paciente (agregação de probabilidades/features por paciente).
-3. Mitigar desbalanceamento com `class weights`, `focal loss` e possíveis estratégias de reamostragem.
-4. Definir política de tratamento de outliers e repetir EDA após limpeza para medir impacto.
-5. Evoluir arquitetura (regularização com dropout, ajustes de hiperparâmetros e data augmentation em espectrograma/áudio).
-6. Consolidar reprodutibilidade (seeds, versionamento de artefatos e rastreio de experimentos).
-7. Expandir interpretabilidade e análise de erro para guiar melhorias por classe diagnóstica.
+## Baseline CNN (TensorFlow)
+
+- CNN simples em espectrogramas (128x128) com 3 blocos Conv + MaxPool, Flatten, Dense e Dropout.
+- Treino com `SparseCategoricalCrossentropy` e pesos de classe para lidar com desbalanceamento.
+- Metricas por epoca: loss, accuracy e F1 macro no conjunto de validacao.
+- Avaliacao final por paciente com agregacao de probabilidades (media por `patient_id`).
+
+
 
 
 
